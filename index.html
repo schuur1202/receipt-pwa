@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="レシート変換">
+<meta name="description" content="レシート画像をAIで読み取ってCSVに変換">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<title>レシートCSV変換</title>
+<style>
+:root{
+  --bg:#f5f4f0;--surface:#fff;--border:#e0ddd6;--border2:#ccc;
+  --text:#1a1a1a;--text2:#666;--text3:#aaa;
+  --accent:#1a1a1a;--accent-fg:#fff;
+  --success:#1a9e6a;--error:#c84a2a;--info:#2a7fc8;
+  --radius:10px;--radius-sm:7px;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#111;--surface:#1e1e1e;--border:#333;--border2:#444;
+    --text:#f0f0f0;--text2:#999;--text3:#666;
+    --accent:#f0f0f0;--accent-fg:#111;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,'Hiragino Sans','Yu Gothic UI','Meiryo',sans-serif}
+body{display:flex;flex-direction:column;max-width:600px;margin:0 auto}
+
+/* header */
+#hdr{background:var(--surface);border-bottom:1px solid var(--border);padding:.75rem 1rem;display:flex;align-items:center;gap:.5rem;flex-shrink:0;position:sticky;top:0;z-index:10}
+#hdr svg{width:22px;height:22px;flex-shrink:0}
+#hdr h1{font-size:15px;font-weight:700;flex:1}
+#api-toggle{background:none;border:1px solid var(--border2);border-radius:var(--radius-sm);padding:.3rem .6rem;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap}
+#api-panel{background:var(--surface);border-bottom:1px solid var(--border);padding:.65rem 1rem;display:none;gap:.5rem;align-items:center}
+#api-panel label{font-size:12px;color:var(--text2);flex-shrink:0}
+#api-key{flex:1;font-size:13px;padding:.4rem .6rem;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);min-width:0}
+#api-save{padding:.4rem .75rem;font-size:12px;border:none;border-radius:var(--radius-sm);background:var(--accent);color:var(--accent-fg);cursor:pointer;white-space:nowrap}
+.api-ok{width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0;display:none}
+
+/* main scroll */
+#main{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.75rem}
+
+/* upload area */
+#upload-area{background:var(--surface);border:1.5px dashed var(--border2);border-radius:var(--radius);padding:1.5rem 1rem;text-align:center;cursor:pointer;transition:background .15s;display:flex;flex-direction:column;align-items:center;gap:.5rem}
+#upload-area:active{background:var(--bg)}
+#upload-area svg{width:36px;height:36px;color:var(--text3)}
+#upload-area p{font-size:14px;font-weight:600;color:var(--text2)}
+#upload-area small{font-size:12px;color:var(--text3)}
+.pick-row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.pick-btn{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem .5rem;text-align:center;cursor:pointer;transition:background .12s;display:flex;flex-direction:column;align-items:center;gap:4px;-webkit-user-select:none;user-select:none}
+.pick-btn:active{background:var(--bg)}
+.pick-btn svg{width:24px;height:24px;color:var(--text2)}
+.pick-btn span{font-size:13px;font-weight:600;color:var(--text)}
+.pick-btn small{font-size:11px;color:var(--text3)}
+input[type=file]{display:none}
+
+/* queue */
+#queue-section{display:none;background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden}
+#queue-hdr{padding:.55rem .85rem;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+#queue-hdr span{font-size:12px;font-weight:600;color:var(--text2)}
+#clear-btn{font-size:11px;color:var(--error);background:none;border:none;cursor:pointer;padding:.2rem}
+#queue-list{display:flex;flex-direction:column}
+.qitem{display:flex;align-items:center;gap:.6rem;padding:.5rem .75rem;border-bottom:1px solid var(--border)}
+.qitem:last-child{border-bottom:none}
+.qthumb{width:40px;height:40px;object-fit:cover;border-radius:5px;flex-shrink:0;border:1px solid var(--border)}
+.qinfo{flex:1;min-width:0}
+.qname{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qst{font-size:11px;margin-top:2px}
+.qst.wait{color:var(--text3)}.qst.run{color:var(--info)}.qst.done{color:var(--success)}.qst.err{color:var(--error)}
+.qdel{background:none;border:none;cursor:pointer;color:var(--text3);padding:4px;font-size:18px;line-height:1;flex-shrink:0}
+
+/* run button */
+#run-btn{width:100%;padding:.85rem;font-size:15px;font-weight:700;border:none;border-radius:var(--radius);background:var(--accent);color:var(--accent-fg);cursor:pointer;transition:opacity .12s;display:none;letter-spacing:.02em}
+#run-btn:active{opacity:.8}
+#run-btn:disabled{opacity:.4}
+
+/* progress */
+#prog-section{display:none}
+#prog-track{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+#prog-bar{height:100%;width:0;background:var(--accent);transition:width .25s}
+#prog-label{font-size:12px;color:var(--text2);text-align:center;margin-top:.4rem}
+
+/* results */
+#result-section{display:none;flex-direction:column;gap:.75rem}
+.s-cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem}
+.s-card{background:var(--surface);border-radius:var(--radius-sm);padding:.65rem .75rem;border:1px solid var(--border)}
+.s-label{font-size:10px;color:var(--text3);margin-bottom:2px}
+.s-val{font-size:18px;font-weight:700}
+#result-list{display:flex;flex-direction:column;gap:.5rem}
+.r-group{background:var(--surface);border-radius:var(--radius);border:1px solid var(--border);overflow:hidden}
+.r-group-hdr{padding:.5rem .75rem;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;color:var(--text2);font-weight:600}
+.r-item{display:flex;align-items:baseline;justify-content:space-between;padding:.45rem .75rem;border-bottom:1px solid var(--border);gap:.5rem}
+.r-item:last-child{border-bottom:none}
+.r-name{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.r-meta{display:flex;gap:.5rem;align-items:baseline;flex-shrink:0}
+.r-qty{font-size:11px;color:var(--text3)}
+.r-amt{font-size:13px;font-weight:600}
+.r-total{display:flex;justify-content:space-between;padding:.5rem .75rem;background:var(--bg);border-top:1px solid var(--border);font-size:13px;font-weight:600}
+
+/* action buttons */
+.act-row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.act-btn{padding:.65rem;font-size:13px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.35rem;transition:background .1s}
+.act-btn:active{background:var(--bg)}
+.act-btn svg{width:16px;height:16px}
+.act-btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+
+/* toast */
+#toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(2rem);background:#333;color:#fff;padding:.55rem 1.2rem;border-radius:999px;font-size:13px;opacity:0;transition:all .2s;pointer-events:none;white-space:nowrap;z-index:99}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* install banner */
+#install-banner{display:none;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:.75rem 1rem;align-items:center;gap:.75rem}
+#install-banner p{flex:1;font-size:13px;color:var(--text2)}
+#install-btn{padding:.45rem .85rem;font-size:13px;font-weight:600;border:none;border-radius:var(--radius-sm);background:var(--accent);color:var(--accent-fg);cursor:pointer;white-space:nowrap}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4zM8 9h8M8 12h8M8 15h4"/></svg>
+  <h1>レシートCSV変換</h1>
+  <span class="api-ok" id="api-ok"></span>
+  <button id="api-toggle" onclick="toggleApi()">APIキー ⚙</button>
+</div>
+
+<div id="api-panel">
+  <label>APIキー</label>
+  <input type="password" id="api-key" placeholder="sk-ant-..." autocomplete="off">
+  <button id="api-save" onclick="saveKey()">保存</button>
+</div>
+
+<div id="main">
+
+  <div id="install-banner">
+    <p>ホーム画面に追加するとアプリとして使えます</p>
+    <button id="install-btn" onclick="installPWA()">追加</button>
+  </div>
+
+  <div class="pick-row">
+    <div class="pick-btn" onclick="document.getElementById('cam-inp').click()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <span>カメラで撮影</span>
+      <small>その場で撮影</small>
+    </div>
+    <div class="pick-btn" onclick="document.getElementById('gal-inp').click()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <span>ライブラリから選択</span>
+      <small>複数選択可</small>
+    </div>
+  </div>
+
+  <input type="file" id="cam-inp" accept="image/*" capture="environment" onchange="addFiles(this.files)">
+  <input type="file" id="gal-inp" accept="image/*" multiple onchange="addFiles(this.files)">
+
+  <div id="queue-section">
+    <div id="queue-hdr">
+      <span id="q-label">0 枚</span>
+      <button id="clear-btn" onclick="resetAll()">すべて削除</button>
+    </div>
+    <div id="queue-list"></div>
+  </div>
+
+  <button id="run-btn" onclick="runAll()">AI変換を開始</button>
+
+  <div id="prog-section">
+    <div id="prog-track"><div id="prog-bar"></div></div>
+    <div id="prog-label"></div>
+  </div>
+
+  <div id="result-section">
+    <div class="s-cards" id="s-cards"></div>
+    <div id="result-list"></div>
+    <div class="act-row">
+      <button class="act-btn primary" onclick="saveCSV()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        CSVを保存
+      </button>
+      <button class="act-btn" onclick="copyCSV()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        コピー
+      </button>
+    </div>
+    <button class="act-btn" style="width:100%" onclick="resetAll()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
+      リセットして最初から
+    </button>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+let items=[];let csvData='';let deferredPrompt=null;
+
+// PWA install
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();deferredPrompt=e;
+  document.getElementById('install-banner').style.display='flex';
+});
+function installPWA(){
+  if(!deferredPrompt)return;
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(()=>{
+    deferredPrompt=null;
+    document.getElementById('install-banner').style.display='none';
+  });
+}
+
+// API key
+function toggleApi(){
+  const p=document.getElementById('api-panel');
+  p.style.display=p.style.display==='flex'?'none':'flex';
+  if(p.style.display==='flex'){
+    const k=localStorage.getItem('ant_key')||'';
+    document.getElementById('api-key').value=k;
+  }
+}
+function saveKey(){
+  const k=document.getElementById('api-key').value.trim();
+  if(k){localStorage.setItem('ant_key',k);toast('APIキーを保存しました');document.getElementById('api-ok').style.display='block';}
+  document.getElementById('api-panel').style.display='none';
+}
+window.addEventListener('DOMContentLoaded',()=>{
+  if(localStorage.getItem('ant_key'))document.getElementById('api-ok').style.display='block';
+});
+
+// file handling
+function addFiles(fl){
+  Array.from(fl).filter(f=>f.type.startsWith('image/')).forEach(f=>{
+    if(items.find(i=>i.name===f.name&&i.size===f.size))return;
+    const r=new FileReader();
+    r.onload=d=>{
+      items.push({id:'i'+Date.now()+Math.random(),name:f.name,size:f.size,src:d.target.result,b64:d.target.result.split(',')[1],mime:f.type||'image/jpeg',status:'待機中',result:null});
+      renderQueue();
+    };
+    r.readAsDataURL(f);
+  });
+}
+function renderQueue(){
+  document.getElementById('q-label').textContent=items.length+' 枚';
+  document.getElementById('queue-section').style.display=items.length?'block':'none';
+  document.getElementById('run-btn').style.display=items.length?'block':'none';
+  const list=document.getElementById('queue-list');list.innerHTML='';
+  items.forEach(it=>{
+    const d=document.createElement('div');d.className='qitem';d.id='q'+it.id;
+    d.innerHTML=`<img class="qthumb" src="${it.src}" alt=""><div class="qinfo"><div class="qname">${esc(it.name)}</div><div class="qst ${scls(it.status)}" id="qs${it.id}">${it.status}</div></div><button class="qdel" onclick="rm('${it.id}')" aria-label="削除">×</button>`;
+    list.appendChild(d);
+  });
+}
+function scls(s){if(s==='完了')return 'done';if(s.startsWith('エラー'))return 'err';if(s==='解析中…')return 'run';return 'wait'}
+function rm(id){items=items.filter(i=>i.id!==id);renderQueue();}
+
+async function runAll(){
+  const apiKey=localStorage.getItem('ant_key')||'';
+  if(!apiKey){
+    document.getElementById('api-panel').style.display='flex';
+    toast('APIキーを入力してください');return;
+  }
+  const btn=document.getElementById('run-btn');btn.disabled=true;
+  document.getElementById('result-section').style.display='none';
+  const ps=document.getElementById('prog-section');ps.style.display='block';
+  const pb=document.getElementById('prog-bar');pb.style.width='0';
+  const pl=document.getElementById('prog-label');
+  const pending=items.filter(i=>i.status!=='完了');
+  const total=pending.length;let done=0;
+  for(const it of pending){
+    setQS(it.id,'解析中…');
+    pl.textContent=`解析中… ${done+1} / ${total}`;
+    try{
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,
+          messages:[{role:'user',content:[
+            {type:'image',source:{type:'base64',media_type:it.mime,data:it.b64}},
+            {type:'text',text:`このレシート画像から情報を抽出してください。必ず以下のJSON形式のみで返答。説明文・マークダウン不要。
+{"store":"店舗名(不明なら空)","date":"YYYY-MM-DD(不明なら空)","total":合計数値(不明なら0),"items":[{"name":"品目名","qty":数量,"unit_price":単価,"amount":金額,"note":"備考"}]}`}
+          ]}]})
+      });
+      const data=await res.json();
+      if(data.error)throw new Error(data.error.message);
+      const txt=(data.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('');
+      it.result=JSON.parse(txt.replace(/```json|```/g,'').trim());
+      it.status='完了';
+    }catch(e){it.status='エラー';console.error(e)}
+    done++;
+    setQS(it.id,it.status);
+    pb.style.width=Math.round(done/total*100)+'%';
+  }
+  pl.textContent='変換完了！';btn.disabled=false;
+  buildResult();
+}
+function setQS(id,s){const el=document.getElementById('qs'+id);if(el){el.textContent=s;el.className='qst '+scls(s)}}
+
+function buildResult(){
+  const rows=[['ファイル名','店舗名','購入日','品目名','数量','単価','金額','備考']];
+  const list=document.getElementById('result-list');list.innerHTML='';
+  let totalAll=0,rCount=0,iCount=0;
+  items.forEach(it=>{
+    if(!it.result)return;
+    const d=it.result;rCount++;
+    const grp=document.createElement('div');grp.className='r-group';
+    const store=d.store||it.name;
+    const dateStr=d.date?` (${d.date})`:'';
+    grp.innerHTML=`<div class="r-group-hdr">${esc(store)}${dateStr}</div>`;
+    (d.items||[]).forEach(item=>{
+      iCount++;
+      const row=document.createElement('div');row.className='r-item';
+      row.innerHTML=`<span class="r-name">${esc(item.name||'')}</span><span class="r-meta"><span class="r-qty">${item.qty??''}</span><span class="r-amt">${item.amount?'¥'+Number(item.amount).toLocaleString():''}</span></span>`;
+      grp.appendChild(row);
+      rows.push([it.name,d.store||'',d.date||'',item.name||'',item.qty??'',item.unit_price??'',item.amount??'',item.note||'']);
+    });
+    if(d.total){
+      const tot=document.createElement('div');tot.className='r-total';
+      tot.innerHTML=`<span>合計</span><span>¥${Number(d.total).toLocaleString()}</span>`;
+      grp.appendChild(tot);
+      totalAll+=Number(d.total);
+    }
+    list.appendChild(grp);
+  });
+  csvData=rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  document.getElementById('s-cards').innerHTML=
+    `<div class="s-card"><div class="s-label">レシート</div><div class="s-val">${rCount}</div></div>`+
+    `<div class="s-card"><div class="s-label">品目数</div><div class="s-val">${iCount}</div></div>`+
+    `<div class="s-card"><div class="s-label">合計</div><div class="s-val" style="font-size:14px">¥${totalAll.toLocaleString()}</div></div>`;
+  document.getElementById('result-section').style.display='flex';
+}
+
+function saveCSV(){
+  if(!csvData)return;
+  const blob=new Blob(['\uFEFF'+csvData],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='receipts.csv';a.click();
+  toast('CSVを保存しました');
+}
+function copyCSV(){
+  if(!csvData)return;
+  navigator.clipboard.writeText(csvData).then(()=>toast('コピーしました'));
+}
+function resetAll(){
+  items=[];csvData='';
+  renderQueue();
+  document.getElementById('result-section').style.display='none';
+  document.getElementById('prog-section').style.display='none';
+  document.getElementById('run-btn').style.display='none';
+}
+
+function toast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2200);
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+// service worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(console.error);
+}
+</script>
+</body>
+</html>
